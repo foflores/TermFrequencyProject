@@ -1,5 +1,6 @@
 from pyspark import SparkContext
 from operator import add
+from math import log
 
 def main():
     sc = SparkContext("local", "ttr").getOrCreate()
@@ -13,21 +14,23 @@ def main():
     total_docs = len(data)
 
     for line in data:
-        tf_rdd = sc.parallelize([line]).flatMap(lambda a: a.split(" "))
-        tf_rdd_id = tf_rdd.take(1)
-        tf_rdd = tf_rdd.filter(lambda a:(len(a)>0) and (a!='\n') and (a!=tf_rdd_id[0])).map(lambda a:(a,1))
-        total_words = tf_rdd.count()
-        tf_rdd = tf_rdd.reduceByKey(add).mapValues(lambda a: (a/total_words))
+        temp_tf_rdd = sc.parallelize([line]).flatMap(lambda a: a.split(" "))
+        tf_rdd_id = temp_tf_rdd.take(1)
+        temp_tf_rdd = temp_tf_rdd.filter(lambda a:(len(a)>0) and (a!='\n') and (a!=tf_rdd_id[0])).map(lambda a:(a,1))
+        total_words = temp_tf_rdd.count()
+        temp_tf_rdd = temp_tf_rdd.reduceByKey(add).mapValues(lambda a: (a/total_words))
+        tf_rdd = tf_rdd.union(temp_tf_rdd)
 
-        idf_rdd = tf_rdd.keys()
-        idf_rdd = idf_rdd.map(lambda a: (a,1))
-
-    idf_rdd = idf_rdd.reduceByKey(add)
+        temp_idf_rdd = temp_tf_rdd.keys().map(lambda a: (a,1))
+        idf_rdd = idf_rdd.union(temp_idf_rdd).reduceByKey(add).mapValues(lambda a: (log(total_docs/a, 10)))
+        
+    idf_rdd = idf_rdd.reduceByKey(add).mapValues(lambda a: (log(total_docs/a, 10)))
+    tfidf_rdd = idf_rdd.join(tf_rdd).mapValues(lambda x: x[0]*x[1])
 
     #Test RDDs
-    #print(tf_rdd.collect())
-    #print(idf_rdd.collect())
-    
+    #tf_rdd.saveAsTextFile('data/tf-out')
+    #idf_rdd.saveAsTextFile('data/idf-out')
+    tfidf_rdd.saveAsTextFile('data/tfidf-out')
 
 
 if __name__ == "__main__":

@@ -3,9 +3,19 @@ from pyspark.conf import SparkConf
 from operator import add
 from math import log
 
+def to_list(a):
+    return [a]
+def append(a, b):
+    a.append(b)
+    return a
+def extend(a, b):
+    a.extend(b)
+    return a
+
 def tfidf(sc, data_path):
     tf_rdd = sc.emptyRDD()
     idf_rdd = sc.emptyRDD()
+    tfidf_rdd = sc.emptyRDD()
     data = []
 
     #reads in file as list of lines
@@ -18,50 +28,60 @@ def tfidf(sc, data_path):
         #loads data into rdd one document at a time and separates it into individual words
         temp_tf_rdd = sc.parallelize([line]).flatMap(lambda a: a.split(" "))
 
-        #takes the first element of the line (i think the first element is a sort of id, so im 
-        #separating it as of now b/c i am not sure what to do with it)
-        tf_rdd_id = temp_tf_rdd.take(1)
+        #takes the first element(doc_id)
+        doc_id = temp_tf_rdd.take(1)
 
-        #filters out elements such as ' ', '\n', and the first id element
-        #then maps each remaining element(a) to key-value pair (a, 1)
-        temp_tf_rdd = temp_tf_rdd.filter(lambda a: (len(a) > 0) and (
-            a != '\n') and (a != tf_rdd_id[0])).map(lambda a: (a, 1))
+        #filters out elements ' ', '\n', and doc_id
+        #then maps each remaining element(term) to key-value pair (term, 1)
+        temp_tf_rdd = temp_tf_rdd.filter(lambda a: (len(a) > 0) and (a != '\n') \
+                                    and (a != doc_id[0])).map(lambda a: (a,1))
         
-        #takes count of the words in the line
+        #takes count of the words per line
         total_words = temp_tf_rdd.count()
 
-        #reduceByKey adds all values with the same key to get a count of each word per line
-        #then maps each value to (a / total_words) which solves the tf portion.
-        temp_tf_rdd = temp_tf_rdd.reduceByKey(add).mapValues(lambda a:
-                                                             (a / total_words))
-        #after each iteration, it unites the current line with tf_rdd which contains the entire file
-        tf_rdd = tf_rdd.union(temp_tf_rdd)
+        #reduceByKey gets a count of each word per line (termcount)
+        #then maps each value to (termcount / total_words) which solves the tf portion.
+        temp_tf_rdd = temp_tf_rdd.reduceByKey(add).mapValues(lambda a: (a / total_words))
 
-        #takes only the keys from temp_tf_rdd and creates a new RDD
-        #then maps each of those keys(a) to a key-value pair (a,1)
-        temp_idf_rdd = temp_tf_rdd.keys().map(lambda a: (a, 1))
+        #takes the keys of temp_tf_rdd and maps each key(term) to key-value pair (term, doc_id)
+        temp_idf_rdd = temp_tf_rdd.keys().map(lambda a: (a,doc_id[0]))
 
         #after each iteration, it unites the current line with idf_rdd which contains the entire file
         idf_rdd = idf_rdd.union(temp_idf_rdd)
 
-    #reducebyKey counts total number of documents each word appears in
-    #then maps each value to to log(total_docs / a, 10) which solves the idf portion
-    idf_rdd = idf_rdd.reduceByKey(add).mapValues(lambda a:
-                                                 (log(total_docs / a, 10)))
+        #joins tf and idf rdds and maps them to (term,(doc_id, tf))
+        temp_tfidf_rdd = temp_idf_rdd.join(temp_tf_rdd)
 
-    #joins tf_rdd and idf_rdd by key and maps each value(x[0], x[1]) to (x[0] * x[1])
-    #tfidf_rdd contains final tfidf calucation for each word per document.
-    tfidf_rdd = tf_rdd.join(idf_rdd).mapValues(lambda x: x[0] * x[1])
+        #after each iteration, it unites the current line with tfidf_rdd which contains the entire file
+        tfidf_rdd = tfidf_rdd.union(temp_tfidf_rdd)
+
+
+    #combines all values into a list by its key(term) to end up with key-value pair (term, [doc_id, doc_id2...])
+    #then takes count of how many documents each word appears and calculates idf value (term, idf)
+    idf_rdd = idf_rdd.combineByKey(to_list, append, extend).map(lambda a: (a[0],log(total_docs/len(a[1]),10)))
+
+    #joins tfidf and idf rdds and maps them to (term, (doc_id, tf), idf)
+    tfidf_rdd = tfidf_rdd.join(idf_rdd)
+
+    #does final calculation for tfidf and maps it to (term, (doc_id, tfidf))
+    #then combines by key to final output (term, [(doc_id, tfidf), (doc_id2, tfidf2)...])
+    tfidf_rdd = tfidf_rdd.mapValues(lambda a: (a[0][0], a[0][1]*a[1])).combineByKey(to_list, append, extend)
+
+    #Test RDDs
+    #tf_rdd.saveAsTextFile('data/tf-out')
+    #idf_rdd.saveAsTextFile('data/idf-out')
+    tfidf_rdd.saveAsTextFile('data/tfidf-out')
 
     return tfidf_rdd
 
-def similarity(sc, tfid_rdd, query):
+def similarity(sc, tfidf_rdd, query):
+    #placeholder for your function
     return [1,2,3]
 
 def main():
     #spark config options
     conf=SparkConf()\
-    .setMaster("local")\
+    .setMaster("local[*]")\
     .setAppName("ttr")\
     .setExecutorEnv("spark.executor.memory","4g")\
     .setExecutorEnv("spark.driver.memory","4g")
@@ -70,6 +90,7 @@ def main():
     data_path = "data/input_test.txt"
     tfidf_rdd = tfidf(sc, data_path)
 
+    #Interface is complete, you can uncomment it once your function is done
     """
     done = False
     while not done:
@@ -94,10 +115,6 @@ def main():
             else:
                 print("try again!")
     """
-    #Test RDDs
-    #tf_rdd.saveAsTextFile('data/tf-out')
-    #idf_rdd.saveAsTextFile('data/idf-out')
-    #tfidf_rdd.saveAsTextFile('data/tfidf-out')
 
     sc.stop()
 

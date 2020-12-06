@@ -4,6 +4,7 @@ from operator import add
 from math import log
 import time
 
+#functions to be used in rdd calculations
 def c1(a):
     return [a]
 def c2(a, b):
@@ -12,7 +13,6 @@ def c2(a, b):
 def c3(a, b):
     a.extend(b)
     return a
-
 def f1(a):
     a = a.split(' ')
     b = []
@@ -23,7 +23,7 @@ def f1(a):
     return b
 
 #previous avg run time: 20 seconds
-#current avg run time: 3 seconds
+#current avg run time: 5 seconds
 def tfidf(sc, data_path):
     #imports data
     tfidf_rdd = sc.textFile(data_path)
@@ -31,6 +31,7 @@ def tfidf(sc, data_path):
 
     #takes count of total documents
     total_docs = tfidf_rdd.count()
+    print(total_docs)
 
     #maps data into (term, doc_id) and filters empty characters
     tfidf_rdd = tfidf_rdd.flatMap(f1).filter(lambda a: a[0] != ' ' and a[0] != '\n' and a[0] != '')
@@ -38,7 +39,7 @@ def tfidf(sc, data_path):
 
     #combines data into (term, [doc_id, doc_id2...]) and maps it to (term, idf)
     idf_rdd = tfidf_rdd.combineByKey(c1, c2, c3)
-    idf_rdd = idf_rdd.map(lambda a: (a[0], log(total_docs/len(list(set(a[1])))), 10))
+    idf_rdd = idf_rdd.map(lambda a: (a[0], log(total_docs/len(set(a[1])), 10)))
     idf_rdd.cache()
 
     #maps data to ((term, doc_id), 1) and reduces it to count term frequency

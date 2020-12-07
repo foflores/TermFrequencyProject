@@ -25,23 +25,17 @@ def f1(a):
         b.append((term, a[0]))
     return b
 def f2(a):
-    term = dict(a[0])
     query = dict(a[1])
-    output = 0
-    for id in term:
-        if query.get(id) != None:
-            output = output + (term[id] * query[id])
-    return output
-def f3(a):
-    term = a[0]
-    query = a[1]
-    num1 = 0
-    num2 = 0
-    for pair in term:
-        num1 = num1 + (pair[1] * pair[1])
-    for pair in query:
-        num2 = num2 + (pair[1] * pair[1])
-    return (sqrt(num1) * sqrt(num2))
+    numer = 0
+    denom1 = 0
+    denom2 = 0
+    for pair in a[0]:
+        denom1 = denom1 + (pair[1] * pair[1])
+        if query.get(pair[0]) != None:
+            numer = numer + (pair[1] * query[pair[0]])
+    for pair in a[1]:
+        denom2 = denom2 + (pair[1] * pair[1])
+    return (numer/(sqrt(denom1)*sqrt(denom2)))
 
 #computes tf-idf matrix
 def tfidf(sc, data_path):
@@ -101,20 +95,9 @@ def similarity(sc, tfidf_rdd, query):
     tfidf_rdd = tfidf_rdd.filter(lambda a: a[0] != query).mapValues(lambda a: (a, output[0][1]))
     tfidf_rdd.cache()
 
-    #calculates numerator of similarity function and caches to memory
-    numerator_rdd = tfidf_rdd.mapValues(f2)
-    numerator_rdd.cache()
-
-    #calculates denominator of similarity function and caches to memory
-    denominator_rdd = tfidf_rdd.mapValues(f3)
-    denominator_rdd.cache()
-
-    #joins numerator and denominator rdds, computes scores, and sorts in descending order
-    similarity_rdd = numerator_rdd.join(denominator_rdd)
-    similarity_rdd = similarity_rdd.mapValues(lambda a: a[0]/a[1]).sortBy(lambda a: a[1], False)
-
-    #filters out any scores of 0
-    similarity_rdd = similarity_rdd.filter(lambda a: a[1] != 0)
+    #calculates similarity, filters out 0 scores, sorts in descending order, and caches to memory
+    similarity_rdd = tfidf_rdd.mapValues(f2).filter(lambda a: a[1] != 0).sortBy(lambda a: a[1], False)
+    similarity_rdd.cache()
 
     return (similarity_rdd.collect())
 
@@ -138,7 +121,7 @@ def main():
     #clears screen of spark context startup notifications
     os.system('clear')
 
-    #query interface
+    #interface
     done = False
     while not done:
         print("\nEnter a term to see its relevance to all terms in the TF-IDF matrix.")

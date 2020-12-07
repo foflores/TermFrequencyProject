@@ -22,7 +22,7 @@ def f1(a):
     for term in a:
         if term == a[0]:
             continue
-        b.append((term, a[0]))
+        b.append((a[0], term))
     return b
 def f2(a):
     query = dict(a[1])
@@ -45,41 +45,36 @@ def tfidf(sc, data_path):
     #takes count of total documents
     total_docs = tfidf_rdd.count()
 
-    #maps data into (term, doc_id) and caches to memory
+    #maps data into (doc_id, term) and caches to memory
     tfidf_rdd = tfidf_rdd.flatMap(f1).cache()
-
-    #filters empty characters and caches to memory
-    temp_tf_rdd = tfidf_rdd.filter(lambda a: a[0] != '' and a[0] != ' ' and a[0] != '\n').cache()
     
-    #filters any unused terms and caches to memory
-    tfidf_rdd = tfidf_rdd.filter(lambda a: a[0].startswith('dis_') or a[0].startswith('gene_')).cache()
+    #filters out empty terms
+    tfidf_rdd1 = tfidf_rdd.filter(lambda a: a[1] != '' and a[1] != ' ' and a[1] != '\n').cache()
 
-    #combines data into (term, [doc_id, doc_id2...]), maps it to (term, idf), and caches to memory
-    idf_rdd = tfidf_rdd.combineByKey(c1, c2, c3)
-    idf_rdd = idf_rdd.map(lambda a: (a[0], log(total_docs/len(set(a[1])), 10))).cache()
+    #filters out unused terms
+    tfidf_rdd2 = tfidf_rdd1.filter(lambda a: a[1].startswith('dis_') or a[1].startswith('gene_')).cache()
 
-    #maps data to ((term, doc_id), 1), reduces it to compute term count per document, and caches to memory
-    tf_rdd = tfidf_rdd.map(lambda a: ((a[0], a[1]), 1))
-    tf_rdd = tf_rdd.reduceByKey(add).cache()
+    #computes the number of times each word appears in each document (TF numerator)
+    tfnumer_rdd = tfidf_rdd2.map(lambda a: (a, 1)).reduceByKey(add)\
+        .map(lambda a: (a[0][0], (a[0][1], a[1]))).cache()
 
-    #maps data to (doc_id, 1), reduces it to count words per document, and caches to memory
-    temp_tf_rdd = temp_tf_rdd.map(lambda a: (a[1],1))
-    temp_tf_rdd = temp_tf_rdd.reduceByKey(add).cache()
+    #computes total words per document (TF denominator)
+    tfdenom_rdd = tfidf_rdd1.map(lambda a: (a[0], 1)).reduceByKey(add).cache()
 
-    #maps data to (doc_id,(word, term)) and joins it with temp_tf_rdd
-    #which contains word count per document
-    tf_rdd = tf_rdd.map(lambda a: (a[0][1],(a[0][0], a[1])))
-    tf_rdd = tf_rdd.join(temp_tf_rdd)
+    #computes IDF 
+    idf_rdd = tfidf_rdd2.distinct().map(lambda a: (a[1], 1)).reduceByKey(add)\
+        .mapValues(lambda a: (log(total_docs/a), 10)).cache()
 
-    #maps data to (word,(doc_id, tf))
-    tf_rdd = tf_rdd.map(lambda a: (a[1][0][0], (a[0],a[1][0][1]/a[1][1]))).cache()
+    #joins TF numerator and denominator
+    tf_rdd = tfnumer_rdd.join(tfdenom_rdd)
 
-    #joins tf_rdd and idf_rdd
-    tfidf_rdd = tf_rdd.join(idf_rdd)
+    #computes TF and joins IDF
+    tfidf_rdd = tf_rdd.map(lambda a: (a[1][0][0], (a[0], (a[1][0][1]/a[1][1])))).join(idf_rdd)
 
-    #maps data to (word, (doc_id, tfidf)), combines it to
-    #(word, [(doc_id, tfidf), (doc_id2, tfidf2)...]), and caches to memory
-    tfidf_rdd = tfidf_rdd.mapValues(lambda a: (a[0][0], a[0][1]*a[1])).combineByKey(c1, c2, c3).cache()
+    #computes TFIDF, combines by key to format (term, [(doc_id1, TFIDF1), (doc_id2, TFIDF2)...]), 
+    #and sorts data
+    tfidf_rdd = tfidf_rdd.mapValues(lambda a: (a[0][0], (a[0][1]/a[1]))).combineByKey(c1, c2, c3)\
+        .sortByKey().cache()
 
     return tfidf_rdd
 
@@ -94,10 +89,9 @@ def similarity(sc, tfidf_rdd, query):
     tfidf_rdd = tfidf_rdd.filter(lambda a: a[0] != query).mapValues(lambda a: (a, output[0][1])).cache()
 
     #calculates similarity, filters out 0 scores, sorts in descending order, and caches to memory
-    similarity_rdd = tfidf_rdd.mapValues(f2).filter(lambda a: a[1] != 0).sortBy(lambda a: a[1], False)\
-        .cache()
+    similarity = tfidf_rdd.mapValues(f2).sortBy(lambda a: a[1], False).take(10)
 
-    return (similarity_rdd.collect())
+    return (similarity)
 
 def main():
     #spark configuration options
@@ -133,7 +127,7 @@ def main():
         for a in output:
             print(f"\t{a[0]}, {a[1]}")
         while True:
-            answer = input("Would you like to try another term? ('y' = yes, 'n' = no): ")
+            answer = input("\nWould you like to try another term? ('y' = yes, 'n' = no): ")
             if answer == 'n':
                 done = True
                 break

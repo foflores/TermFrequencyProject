@@ -80,12 +80,14 @@ def tfidf(sc, data_path):
 
 #computes relevance scores
 def similarity(sc, tfidf_rdd, query):
-    #checks query term against matrix to see if it exists in data
+    #filters for query term
     output = tfidf_rdd.filter(lambda a: a[0] == query).collect()
+
+    #if query term is not found, return empty list
     if len(output) == 0:
         return output
     
-    #filters out query term and caches matrix
+    #filters out query term, maps all terms in matrix with query term numbers and caches matrix
     tfidf_rdd = tfidf_rdd.filter(lambda a: a[0] != query).mapValues(lambda a: (a, output[0][1])).cache()
 
     #calculates similarity, sorts in descending order, and takes first 10

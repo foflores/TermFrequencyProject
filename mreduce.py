@@ -63,7 +63,7 @@ def tfidf(sc, data_path):
 
     #computes IDF 
     idf_rdd = tfidf_rdd2.distinct().map(lambda a: (a[1], 1)).reduceByKey(add)\
-        .mapValues(lambda a: (log(total_docs/a), 10)).cache()
+        .mapValues(lambda a: (log((total_docs/a), 10))).cache()
 
     #joins TF numerator and denominator
     tf_rdd = tfnumer_rdd.join(tfdenom_rdd)
@@ -85,10 +85,10 @@ def similarity(sc, tfidf_rdd, query):
     if len(output) == 0:
         return output
     
-    #filters out query term from matrix and caches matrix
+    #filters out query term and caches matrix
     tfidf_rdd = tfidf_rdd.filter(lambda a: a[0] != query).mapValues(lambda a: (a, output[0][1])).cache()
 
-    #calculates similarity, filters out 0 scores, sorts in descending order, and caches to memory
+    #calculates similarity, sorts in descending order, and takes first 10
     similarity = tfidf_rdd.mapValues(f2).sortBy(lambda a: a[1], False).take(10)
 
     return (similarity)

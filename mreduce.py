@@ -52,7 +52,7 @@ def tfidf(sc, data_path):
     tfidf_rdd1 = tfidf_rdd.filter(lambda a: a[1] != '' and a[1] != ' ' and a[1] != '\n').cache()
 
     #filters out unused terms
-    tfidf_rdd2 = tfidf_rdd1.filter(lambda a: a[1].startswith('dis_') or a[1].startswith('gene_')).cache()
+    tfidf_rdd2 = tfidf_rdd1.filter(lambda a: a[1].startswith("dis_") or a[1].startswith("gene_")).cache()
 
     #computes the number of times each word appears in each document (TF numerator)
     tfnumer_rdd = tfidf_rdd2.map(lambda a: (a, 1)).reduceByKey(add)\
@@ -134,7 +134,7 @@ def main():
                 done = True
                 break
             elif answer == 'y':
-                os.system('clear')
+                os.system("clear")
                 break
             else:
                 print("try again!")
